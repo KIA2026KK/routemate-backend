@@ -1,46 +1,84 @@
 # RouteMate Backend
 
-Java 21 / Spring Boot 3.5.16 / Gradle Wrapper 8.14.3 기반 초기 서버입니다.
-PostgreSQL 17 + PostGIS 3.5, Redis 7.4, Flyway, JUnit 5, Testcontainers를 사용합니다.
-공식 Spring Initializr로 생성 후 JUnit 5 호환성을 위해 안정 3.5 계열로 조정했습니다.
-호환성: https://docs.spring.io/spring-boot/3.5/system-requirements.html
+RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그룹 음성 통화 서비스입니다.
+백엔드는 목적지 기반 매칭, 통화방 관리, 음성 통화 접근 권한을 담당합니다.
 
-## 실행 (PowerShell)
+이 문서는 MVP에서 구현할 기능과 설계 방향을 설명합니다.
 
-Java 21, Linux 컨테이너 모드 Docker Desktop을 설치하고 Java와 Docker를 PATH에 추가하세요.
+## 주요 기능 계획
 
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-21'
-Copy-Item .env.example .env
-# .env의 DB_PASSWORD와 REDIS_PASSWORD에 서로 다른 로컬 비밀번호를 입력
-docker compose up -d --wait
-.\gradlew.bat bootRun
-```
+### 목적지 및 운행 세션 관리
 
-다른 터미널에서 `Invoke-RestMethod http://localhost:8080/actuator/health`를 실행하세요.
-DB와 Redis가 정상 연결되면 status는 UP입니다. .env는 Git에서 제외됩니다.
-환경 변수는 .env보다 우선합니다. .env에는 단순 영문/숫자 값을 권장합니다.
-기존 DB 볼륨의 비밀번호는 .env 변경만으로 바뀌지 않습니다.
+- 사용자의 목적지 이름과 위도·경도를 등록합니다.
+- 목적지 변경을 운행 세션에 반영하고 세션의 종료·만료를 관리합니다.
+- 잘못된 좌표 입력을 차단하고, 정확한 목적지 좌표가 다른 사용자에게 노출되지 않도록 합니다.
 
-## 검증과 종료
+### 목적지 반경 기반 매칭
 
-```powershell
-.\gradlew.bat test bootJar
-docker compose down
-```
+- 사용자 목적지에서 5km 또는 10km 이내에 중심 목적지가 있는 통화방을 검색합니다.
+- PostGIS로 목적지 사이의 직선거리를 계산하며, 목적지가 정확히 같지 않아도 연결할 수 있도록 합니다.
+- 비공개·종료·만료되었거나 정원이 가득 찬 방은 검색 결과에서 제외합니다.
 
-테스트는 임시 PostGIS·Redis 컨테이너를 생성해 Flyway 적용, PostGIS 확장,
-Redis PING 및 실제 HTTP health 응답을 확인합니다. Docker가 없으면 실패합니다.
-테스트는 로컬 .env를 읽지 않습니다. JAR은 build/libs에 생성됩니다.
-macOS/Linux에서는 `./gradlew`를 사용하세요.
+### 통화방 생성 및 참여 관리
 
-## 구조
+- 방 이름, 공개 여부, 정원을 지정해 통화방을 생성합니다.
+- 방의 중심 목적지는 생성 시 정해진 좌표로 유지합니다.
+- 방 입장·퇴장과 자신의 참여 중인 방 조회를 제공합니다.
+- 한 사용자는 동시에 하나의 방에만 참여하도록 제한합니다.
+- 동시 입장 요청에서도 정원 초과와 중복 참여를 방지합니다.
+- 참여자가 없는 방과 만료된 방의 자동 종료를 처리합니다.
 
-`src/main/java/com/routemate` 아래 auth, user, trip, matching, room, voice, common은
-향후 기능별 패키지입니다. 비즈니스 기능은 아직 없습니다.
-`src/main/resources/db/migration`에 Flyway SQL을 추가합니다.
-JPA ddl-auto는 validate입니다. V1은 PostGIS 확장만 활성화합니다.
-운영 DB에서는 관리자가 확장을 설치하고 계정 권한을 분리하세요.
+### 실시간 음성 통화 지원
 
-3인 음성 통화, Pleos 목적지 조회, 차량 통화 정책은 이번 검증 범위 밖입니다.
-추천 커밋: `chore: bootstrap RouteMate backend infrastructure`
+- LiveKit을 이용한 다자간 음성 통화를 지원합니다.
+- 서버가 방 참여 권한을 확인한 뒤 해당 방의 통화 토큰을 발급합니다.
+- 퇴장·방 종료·토큰 만료 시 접근 권한을 관리합니다.
+- 네트워크 중단 후 재접속 시 참여 상태와 통화 권한을 확인합니다.
+- LiveKit API Secret은 서버에서만 관리합니다.
+
+## API 계획
+
+| 메서드 | 경로 | 기능 |
+| --- | --- | --- |
+| POST | `/api/v1/trips` | 목적지 등록 및 운행 세션 시작 |
+| GET | `/api/v1/rooms/nearby` | 목적지 반경 내 통화방 검색 |
+| POST | `/api/v1/rooms` | 통화방 생성 |
+| POST | `/api/v1/rooms/{id}/join` | 통화방 입장 |
+| POST | `/api/v1/rooms/{id}/leave` | 통화방 퇴장 |
+| GET | `/api/v1/rooms/me` | 자신의 참여 중인 방 조회 |
+| POST | `/api/v1/voice/token` | 참여 권한 확인 후 LiveKit 토큰 발급 |
+
+요청·응답과 오류 규격은 기능 구현 시 Android 앱과 함께 정의합니다.
+서버가 신뢰할 수 있는 사용자 식별 방식을 적용하고, 로그인·회원가입 고도화는 MVP 범위에서 제외합니다.
+
+## DDD 설계 방향
+
+`auth`, `user`, `trip`, `matching`, `room`, `voice`를 기능별로 구분합니다.
+각 기능 내부는 필요한 범위에서 다음 계층으로 구성합니다.
+
+| 계층 | 역할 |
+| --- | --- |
+| domain | 값 객체, 애그리거트, 비즈니스 규칙과 저장소 포트 |
+| application | 유스케이스 실행과 트랜잭션 조율 |
+| infrastructure | PostgreSQL/PostGIS, Redis, LiveKit 등 외부 시스템 연결 |
+| presentation | HTTP API, 요청 검증, 응답 및 오류 변환 |
+
+도메인이 HTTP DTO나 외부 SDK 구현에 의존하지 않도록 설계합니다.
+하나의 백엔드 애플리케이션 안에서 실제 비즈니스 규칙에 따라 경계를 나눕니다.
+
+## 기술 구성
+
+Java 21, Spring Boot, Gradle, PostgreSQL/PostGIS, Redis, Flyway,
+LiveKit 서버 SDK, JUnit 5, Testcontainers, Docker Compose를 활용합니다.
+
+## 개발 흐름
+
+기능/API마다 최신 `develop`에서 작업 브랜치를 분리합니다.
+작업 PR의 빌드·테스트 통과 후 `develop`에 머지하고,
+`develop` 검증을 통과하면 별도의 `develop → main` PR로 반영합니다.
+세부 규칙은 [DEVELOPMENT.md](DEVELOPMENT.md)를 참고합니다.
+
+## MVP 범위
+
+목적지 매칭, 통화방 관리, 다자간 음성 통화에 집중합니다.
+문자 채팅, 친구, AI 추천, 만남 기능은 포함하지 않습니다.

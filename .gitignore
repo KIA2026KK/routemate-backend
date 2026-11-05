@@ -33,14 +33,4 @@ build/
 .idea/
 .vscode/
 *.iml
-
-# Gradle wrapper must be versioned
-!gradle/wrapper/gradle-wrapper.jar
-.gradle/
-build/
-.env
-.env.*
-!.env.example
-.idea/
-.vscode/
-*.iml
+/bin/
