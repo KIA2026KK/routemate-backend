@@ -43,7 +43,7 @@ public class AnonymousSessions {
         return sessions.findUser(hash(authorization.substring(7)), clock.instant()).orElseThrow(Unauthorized::new);
     }
 
-    private static String hash(String token) {
+    static String hash(String token) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException("SHA-256 unavailable", e); }
