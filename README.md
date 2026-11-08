@@ -54,15 +54,19 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 | POST | `/api/v1/auth/device-sessions/recover` | VIN·복구키로 계정 접근권 복구 |
 | POST | `/api/v1/vehicles/me` | 인증된 설치에 VIN 차량 연결 |
 | POST | `/api/v1/trips` | 목적지 등록 및 운행 세션 시작 |
+| GET | `/api/v1/trips/me` | 자신의 활성 운행 조회 |
+| POST | `/api/v1/trips/me/end` | 운행 종료 및 방 퇴장 |
 | GET | `/api/v1/rooms/nearby` | 목적지 반경 내 통화방 검색 |
 | POST | `/api/v1/rooms` | 통화방 생성 |
 | POST | `/api/v1/rooms/{id}/join` | 통화방 입장 |
 | POST | `/api/v1/rooms/{id}/leave` | 통화방 퇴장 |
 | GET | `/api/v1/rooms/me` | 자신의 참여 중인 방 조회 |
+| POST | `/api/v1/rooms/{id}/heartbeat` | 참가 상태 유지 및 최신 인원 확인 |
 | POST | `/api/v1/voice/token` | 참여 권한 확인 후 LiveKit 토큰 발급 |
 
 요청·응답과 오류 규격은 기능 구현 시 Android 앱과 함께 정의합니다.
 목적지 등록과 익명 세션의 요청·응답은 [API 계약](docs/trip-api.md)을 따릅니다.
+방·운행 종료·음성 토큰과 만료 규칙은 [MVP 통합 계약](docs/mvp-room-calls.md)을 따릅니다.
 서버가 신뢰할 수 있는 사용자 식별 방식을 적용하고, 로그인·회원가입 고도화는 MVP 범위에서 제외합니다.
 
 ## DDD 설계 방향
