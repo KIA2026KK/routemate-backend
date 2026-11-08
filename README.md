@@ -17,6 +17,8 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 
 - Pleos Vehicle SDK에서 읽은 VIN으로 차량 계정을 식별합니다.
 - VIN 연결과 설치 세션 토큰 인증을 함께 적용하고, 공개 VIN만으로 기존 계정에 로그인하지 않습니다.
+- 유효 세션을 갱신하고, 별도 보관한 복구키와 현재 VIN으로 재설치 후 같은 차량 계정을 복구합니다.
+- 복구 시 이전 세션을 종료하며, 복구키 재발급으로 이전 키를 무효화합니다.
 - 검증된 SDK 속성과 DB 관계는 [VIN 설계](docs/vin-vehicle-identity.md)를 따릅니다.
 
 ### 목적지 반경 기반 매칭
@@ -47,6 +49,9 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 | 메서드 | 경로 | 기능 |
 | --- | --- | --- |
 | POST | `/api/v1/auth/device-sessions` | 차량 연결 전 설치 세션 발급 |
+| POST | `/api/v1/auth/device-sessions/renew` | 유효한 차량 세션 갱신 |
+| POST | `/api/v1/auth/recovery-keys` | 차량 계정 복구키 발급·재발급 |
+| POST | `/api/v1/auth/device-sessions/recover` | VIN·복구키로 계정 접근권 복구 |
 | POST | `/api/v1/vehicles/me` | 인증된 설치에 VIN 차량 연결 |
 | POST | `/api/v1/trips` | 목적지 등록 및 운행 세션 시작 |
 | GET | `/api/v1/rooms/nearby` | 목적지 반경 내 통화방 검색 |
