@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: routemate_mvp
+      POSTGRES_USER: routemate
+      POSTGRES_PASSWORD: ${MVP_DB_PASSWORD:?Run the MVP verification script}
+    ports: ["127.0.0.1:15432:5432"]
+    tmpfs: ["/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routemate -d routemate_mvp"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDISCLI_AUTH: ${MVP_REDIS_PASSWORD:?Run the MVP verification script}
+    command: ["redis-server", "--requirepass", "${MVP_REDIS_PASSWORD:?Run the MVP verification script}"]
+    ports: ["127.0.0.1:16379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
