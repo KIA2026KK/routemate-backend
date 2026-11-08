@@ -26,10 +26,10 @@ class TripController {
         var input = request.destination();
         var trip = register.execute(userId, new Destination(input.name(), input.latitude(), input.longitude()));
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
-            new TripResponse(trip.id(), trip.destination(), "ACTIVE", trip.startedAt(), trip.updatedAt()));
+            new TripResponse(trip.id(), trip.vehicleId(), trip.destination(), "ACTIVE", trip.startedAt(), trip.updatedAt()));
     }
     record TripRequest(@NotNull @Valid DestinationRequest destination) { }
     record DestinationRequest(@NotBlank @Size(max = 120) String name,
         @NotNull Double latitude, @NotNull Double longitude) { }
-    record TripResponse(UUID tripId, Destination destination, String status, Instant startedAt, Instant updatedAt) { }
+    record TripResponse(UUID tripId, UUID vehicleId, Destination destination, String status, Instant startedAt, Instant updatedAt) { }
 }
