@@ -30,7 +30,12 @@ class TripApiIntegrationTests {
             .andExpect(status().isCreated()).andExpect(header().string("Cache-Control", "no-store"))
             .andExpect(jsonPath("accessToken").isString()).andExpect(jsonPath("userId").isString())
             .andReturn();
-        return json.readTree(result.getResponse().getContentAsString());
+        var session = json.readTree(result.getResponse().getContentAsString());
+        String vin = "KNA" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 14).toUpperCase();
+        mvc.perform(post("/api/v1/vehicles/me").header("Authorization", "Bearer " + session.get("accessToken").asText())
+            .contentType("application/json").content("{\"vin\":\""+vin+"\",\"source\":\"PLEOS_SDK\",\"vinAccessType\":\"READ\"}"))
+            .andExpect(status().isOk());
+        return session;
     }
     private String body(String name, double lat, double lon) throws Exception {
         return json.writeValueAsString(java.util.Map.of("destination", java.util.Map.of(

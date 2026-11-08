@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 class AnonymousSessionController {
     private final AnonymousSessions sessions;
     AnonymousSessionController(AnonymousSessions sessions) { this.sessions = sessions; }
-    @PostMapping("/api/v1/auth/anonymous")
+    @PostMapping({"/api/v1/auth/device-sessions", "/api/v1/auth/anonymous"})
     ResponseEntity<AnonymousSessions.IssuedSession> create() {
         return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(sessions.create());
     }
