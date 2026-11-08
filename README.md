@@ -13,6 +13,12 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 - 목적지 변경을 운행 세션에 반영하고 세션의 종료·만료를 관리합니다.
 - 잘못된 좌표 입력을 차단하고, 정확한 목적지 좌표가 다른 사용자에게 노출되지 않도록 합니다.
 
+### VIN 차량 계정
+
+- Pleos Vehicle SDK에서 읽은 VIN으로 차량 계정을 식별합니다.
+- VIN 연결과 설치 세션 토큰 인증을 함께 적용하고, 공개 VIN만으로 기존 계정에 로그인하지 않습니다.
+- 검증된 SDK 속성과 DB 관계는 [VIN 설계](docs/vin-vehicle-identity.md)를 따릅니다.
+
 ### 목적지 반경 기반 매칭
 
 - 사용자 목적지에서 5km 또는 10km 이내에 중심 목적지가 있는 통화방을 검색합니다.
@@ -40,6 +46,8 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 
 | 메서드 | 경로 | 기능 |
 | --- | --- | --- |
+| POST | `/api/v1/auth/device-sessions` | 차량 연결 전 설치 세션 발급 |
+| POST | `/api/v1/vehicles/me` | 인증된 설치에 VIN 차량 연결 |
 | POST | `/api/v1/trips` | 목적지 등록 및 운행 세션 시작 |
 | GET | `/api/v1/rooms/nearby` | 목적지 반경 내 통화방 검색 |
 | POST | `/api/v1/rooms` | 통화방 생성 |
@@ -54,7 +62,7 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 
 ## DDD 설계 방향
 
-`auth`, `user`, `trip`, `matching`, `room`, `voice`를 기능별로 구분합니다.
+`auth`, `user`, `vehicle`, `trip`, `matching`, `room`, `voice`를 기능별로 구분합니다.
 각 기능 내부는 필요한 범위에서 다음 계층으로 구성합니다.
 
 | 계층 | 역할 |

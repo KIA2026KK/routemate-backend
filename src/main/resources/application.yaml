@@ -23,6 +23,9 @@ spring:
       password: ${REDIS_PASSWORD}
 server:
   port: ${SERVER_PORT:8080}
+routemate:
+  vehicle:
+    allow-mock: ${ALLOW_MOCK_VEHICLE:false}
 management:
   endpoints:
     web:
