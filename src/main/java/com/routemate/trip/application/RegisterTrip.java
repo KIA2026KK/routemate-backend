@@ -12,11 +12,13 @@ public class RegisterTrip {
     private final TripRepository trips;
     private final Clock clock;
     private final VehicleAccounts vehicles;
-    public RegisterTrip(TripRepository trips, Clock clock, VehicleAccounts vehicles) {
-        this.trips = trips; this.clock = clock; this.vehicles = vehicles;
+    private final com.routemate.room.domain.RoomRepository rooms;
+    public RegisterTrip(TripRepository trips, Clock clock, VehicleAccounts vehicles, com.routemate.room.domain.RoomRepository rooms) {
+        this.trips = trips; this.clock = clock; this.vehicles = vehicles; this.rooms=rooms;
     }
     @Transactional
     public Trip execute(UUID userId, Destination destination) {
+        rooms.lock();rooms.expire(clock.instant());
         var vehicle = vehicles.current(userId);
         return trips.register(userId, vehicle.id(), destination, clock.instant());
     }
