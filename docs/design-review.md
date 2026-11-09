@@ -27,6 +27,9 @@
 7. 기존 화면은 상세 폼·개발 도구와 주 조작이 섞였다. 목적지·통화 중심 대시보드, 별도 입력 다이얼로그,
    수동 정차 확인, 최소 76dp 버튼과 주/야간 테마로 정리했다. 별도 패키지의 오프라인 체험 모드를 추가했다.
 8. 클라우드의 PORT·PG TLS·Redis URL 설정을 보완하고 Docker/Render 초안을 추가했다.
+9. 실제 음성 UI 테스트에서 마이크 발행 후 화면이 꺼짐으로 남는 경합을 발견했다. LiveKit 2.30.0의
+   비동기 파생 속성 `isMicrophoneEnabled`를 직접 관찰하도록 수정하고 변경 실패 안내를 추가했다.
+   [SDK 상태 정의](https://github.com/livekit/client-sdk-android/blob/v2.30.0/livekit-android-sdk/src/main/java/io/livekit/android/room/participant/Participant.kt)를 확인했다.
 
 공통 API 계약은 [운행](trip-api.md), [통화방·음성](mvp-room-calls.md), 배포 전달 정보는
 [Render·Firebase](deployment-render-firebase.md), 실행 결과는 각 저장소 `VERIFICATION.md`에 기록한다.

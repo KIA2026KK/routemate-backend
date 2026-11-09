@@ -71,4 +71,3 @@
 - 최종 소스의 `docker build -t routemate-backend:design-review .` 성공. Java 21 다단계 이미지, UID 10001 실행.
 - 실제 Render/Firebase 자원 생성·배포는 미실시. 클라우드 DB 확장 버전·원격 TLS·음성 포트는 배포 후 확인 필요.
 - [설계 점검](docs/design-review.md), [배포 안내](docs/deployment-render-firebase.md)에 남은 조건 기록.
-
