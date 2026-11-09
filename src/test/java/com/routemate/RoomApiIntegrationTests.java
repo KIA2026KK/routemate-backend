@@ -7,6 +7,8 @@ import com.routemate.room.domain.RoomFailure;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -22,20 +24,27 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest(properties={"spring.config.import=","DB_PASSWORD=unused","REDIS_PASSWORD=","routemate.maintenance-delay-ms=3600000"})
+@SpringBootTest(properties={"spring.config.import=","DB_PASSWORD=unused","REDIS_PASSWORD=","routemate.maintenance-delay-ms=3600000","routemate.vehicle.allow-mock=true"})
 @AutoConfigureMockMvc
 class RoomApiIntegrationTests {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
     @Autowired RoomVoice voice;
+    @Autowired DataSource dataSource;
     @MockitoBean VoiceGateway gateway;
     private record Driver(String token,String user){}
     private Driver driver(boolean trip)throws Exception{return driver(trip,37.55,126.97);}
     private Driver driver(boolean trip,double lat,double lng)throws Exception{
+        return driver(trip,lat,lng,"PLEOS_SDK");
+    }
+    private Driver driver(boolean trip,double lat,double lng,String source)throws Exception{
         var session=read(mvc.perform(post("/api/v1/auth/device-sessions")).andExpect(status().isCreated()));
         var d=new Driver(session.path("accessToken").asText(),session.path("userId").asText());
-        request(d,"/api/v1/vehicles/me",Map.of("vin","KNA"+UUID.randomUUID().toString().replace("-","").substring(0,14),"source","PLEOS_SDK","vinAccessType","READ"))
+        Map<String,Object> vehicle=new HashMap<>();
+        vehicle.put("vin","KNA"+UUID.randomUUID().toString().replace("-","").substring(0,14));
+        vehicle.put("source",source);vehicle.put("vinAccessType",source.equals("MOCK")?null:"READ");
+        request(d,"/api/v1/vehicles/me",vehicle)
             .andExpect(status().isOk());
         if(trip)destination(d,lat,lng);return d;
     }
@@ -111,6 +120,20 @@ class RoomApiIntegrationTests {
         assertThat(getAs(origin,"/api/v1/rooms/nearby?radiusKm=5").toString()).doesNotContain(id(nearRoom));
         mvc.perform(get("/api/v1/rooms/nearby?radiusKm=7").header("Authorization","Bearer "+origin.token())).andExpect(status().isBadRequest());
     }
+    @Test void publicDistancesAreApproximateKilometerBuckets()throws Exception{
+        var seeker=driver(true,30.123,124.543);
+        var creator=driver(true,30.1275,124.543);
+        var room=create(creator,"거리 표시",true,3);
+        var results=getAs(seeker,"/api/v1/rooms/nearby?radiusKm=5");
+        var matching=java.util.stream.StreamSupport.stream(results.spliterator(),false)
+            .filter(entry->entry.path("room").path("id").asText().equals(id(room))).findFirst().orElseThrow();
+        assertThat(matching.path("distanceMeters").asLong()).isEqualTo(1000);
+        destination(seeker,30.1275,124.543);
+        var same=getAs(seeker,"/api/v1/rooms/nearby?radiusKm=5");
+        var sameRoom=java.util.stream.StreamSupport.stream(same.spliterator(),false)
+            .filter(entry->entry.path("room").path("id").asText().equals(id(room))).findFirst().orElseThrow();
+        assertThat(sameRoom.path("distanceMeters").asLong()).isEqualTo(1000);
+    }
     @Test void centerRemainsFixedWhenCreatorsDestinationChanges()throws Exception{
         var a=driver(true,34.0,127.0);var r=create(a,"고정 중심",true,3);destination(a,36,127);
         var b=driver(true,34,127);
@@ -159,5 +182,93 @@ class RoomApiIntegrationTests {
         for(var body:List.of(Map.of("name"," ","isPublic",true,"capacity",3),Map.of("name","방","isPublic",true,"capacity",9),
             Map.of("name","방","isPublic",true,"capacity",3,"userId",a.user())))
             request(a,"/api/v1/rooms",body).andExpect(status().isBadRequest());
+    }
+    @Test void mockAndRealRoomsCannotDiscoverOrJoinEachOther()throws Exception{
+        var real=driver(true,32,128,"PLEOS_SDK");var mock=driver(true,32,128,"MOCK");
+        var realRoom=create(real,"실제 출처",true,3);var mockRoom=create(mock,"샘플 출처",true,3);
+        assertThat(getAs(real,"/api/v1/rooms/nearby").toString()).doesNotContain(id(mockRoom));
+        assertThat(getAs(mock,"/api/v1/rooms/nearby").toString()).doesNotContain(id(realRoom));
+        request(real,"/api/v1/rooms/"+id(realRoom)+"/leave",null).andExpect(status().isOk());
+        request(real,"/api/v1/rooms/"+id(mockRoom)+"/join",null).andExpect(status().isNotFound());
+    }
+    private ResultActions conditionalDestination(Driver d,String tripId,long revision,double latitude)throws Exception{
+        Map<String,Object> precondition=new HashMap<>();precondition.put("tripId",tripId);precondition.put("revision",revision);
+        return request(d,"/api/v1/trips",Map.of("destination",Map.of("name","목적지","latitude",latitude,"longitude",127),"precondition",precondition));
+    }
+    @Test void staleDestinationCannotOverwriteNewerRevisionOrResurrectEndedTrip()throws Exception{
+        var d=driver(true);var original=getAs(d,"/api/v1/trips/me");String tripId=original.path("id").asText();long revision=original.path("revision").asLong();
+        conditionalDestination(d,tripId,revision,36).andExpect(status().isOk()).andExpect(jsonPath("revision").value(revision+1));
+        conditionalDestination(d,tripId,revision,35).andExpect(status().isConflict()).andExpect(jsonPath("code").value("TRIP_CHANGED"));
+        assertThat(getAs(d,"/api/v1/trips/me").path("destination").path("latitude").asDouble()).isEqualTo(36);
+        request(d,"/api/v1/trips/me/end",null).andExpect(status().isOk());
+        conditionalDestination(d,tripId,revision+1,35).andExpect(status().isConflict());
+        assertThat(getAs(d,"/api/v1/trips/me").isNull()).isTrue();
+        conditionalDestination(d,null,0,34).andExpect(status().isOk()).andExpect(jsonPath("revision").value(1));
+        conditionalDestination(d,tripId,1,35).andExpect(status().isConflict());
+    }
+    @Test void concurrentFirstRegistrationsAcceptOnlyOneMatchingEmptyPrecondition()throws Exception{
+        var d=driver(false);
+        try(var pool=Executors.newVirtualThreadPerTaskExecutor()){
+            var first=pool.submit(()->conditionalDestination(d,null,0,35).andReturn().getResponse().getStatus());
+            var second=pool.submit(()->conditionalDestination(d,null,0,36).andReturn().getResponse().getStatus());
+            assertThat(List.of(first.get(10,TimeUnit.SECONDS),second.get(10,TimeUnit.SECONDS))).containsExactlyInAnyOrder(200,409);
+        }
+        assertThat(getAs(d,"/api/v1/trips/me").path("revision").asLong()).isEqualTo(1);
+    }
+    @Test void queuedTripWriteRechecksCredentialAfterLifecycleLock()throws Exception{
+        var d=driver(true);double before=getAs(d,"/api/v1/trips/me").path("destination").path("latitude").asDouble();
+        try(var connection=dataSource.getConnection();var pool=Executors.newVirtualThreadPerTaskExecutor()){
+            connection.setAutoCommit(false);
+            try(var statement=connection.prepareStatement("select pg_advisory_xact_lock(20261109)")){statement.execute();}
+            var pending=pool.submit(()->request(d,"/api/v1/trips",Map.of("destination",Map.of("name","폐기 후 변경","latitude",34,"longitude",127))).andReturn().getResponse().getStatus());
+            try{
+                long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);boolean waiting=false;
+                while(System.nanoTime()<deadline){
+                    waiting=Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from pg_stat_activity where wait_event='advisory' and query like '%pg_advisory_xact_lock(20261109)%')",Boolean.class));
+                    if(waiting)break;Thread.sleep(10);
+                }
+                assertThat(waiting).as("request reached the lifecycle lock before revocation").isTrue();
+                jdbc.update("update auth_sessions set revoked_at=now() where user_id=?::uuid",d.user());
+            }finally{connection.commit();}
+            assertThat(pending.get(5,TimeUnit.SECONDS)).isEqualTo(401);
+        }
+        assertThat(jdbc.queryForObject("select ST_Y(destination::geometry) from trip_sessions where user_id=?::uuid and ended_at is null",Double.class,d.user())).isEqualTo(before);
+    }
+    @Test void livekitCreationDoesNotBlockRoomsAndRejectsMembershipLostDuringNetworkCall()throws Exception{
+        var d=driver(true);var room=create(d,"느린 음성 서버",true,3);var entered=new CountDownLatch(1);var release=new CountDownLatch(1);
+        when(gateway.issue(any(),anyInt(),any(),any())).thenAnswer(invocation->{entered.countDown();if(!release.await(15,TimeUnit.SECONDS))throw new IllegalStateException("test gate timeout");return new VoiceGateway.Grant("ws://localhost:7880","test-token",Instant.now().plusSeconds(60));});
+        try(var pool=Executors.newVirtualThreadPerTaskExecutor()){
+            var pending=pool.submit(()->request(d,"/api/v1/voice/token",Map.of("roomId",id(room))).andReturn().getResponse().getStatus());
+            try{
+                assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
+                var current=pool.submit(()->getAs(d,"/api/v1/rooms/me"));
+                assertThat(current.get(3,TimeUnit.SECONDS).path("id")).isEqualTo(room.path("id"));
+                var leave=pool.submit(()->request(d,"/api/v1/rooms/"+id(room)+"/leave",null).andReturn().getResponse().getStatus());
+                assertThat(leave.get(3,TimeUnit.SECONDS)).isEqualTo(200);
+            }finally{release.countDown();}
+            assertThat(pending.get(5,TimeUnit.SECONDS)).isEqualTo(403);
+        }
+    }
+    @Test void maintenanceRechecksFreshPermissionsWithoutBlockingNewAuthorization()throws Exception{
+        var d=driver(true);var room=create(d,"정리 경합",true,3);var enumerated=new CountDownLatch(1);var resume=new CountDownLatch(1);
+        var identity=new AtomicReference<String>();var deletions=new AtomicInteger();var removals=new AtomicInteger();
+        when(gateway.issue(any(),anyInt(),any(),any())).thenReturn(new VoiceGateway.Grant("ws://localhost:7880","test-token",Instant.now().plusSeconds(60)));
+        doAnswer(invocation->{
+            VoiceGateway.PermissionGuard guard=invocation.getArgument(0);enumerated.countDown();
+            if(!resume.await(15,TimeUnit.SECONDS))throw new IllegalStateException("test gate timeout");
+            guard.deleteIfEmpty("rmv-"+id(room),deletions::incrementAndGet);
+            guard.removeIfDenied("rmv-"+id(room),identity.get(),removals::incrementAndGet);return null;
+        }).when(gateway).reconcile(any());
+        try(var pool=Executors.newVirtualThreadPerTaskExecutor()){
+            var maintenance=pool.submit(()->voice.maintain());
+            try{
+                assertThat(enumerated.await(5,TimeUnit.SECONDS)).isTrue();
+                var issuance=pool.submit(()->request(d,"/api/v1/voice/token",Map.of("roomId",id(room))).andReturn().getResponse().getStatus());
+                assertThat(issuance.get(3,TimeUnit.SECONDS)).isEqualTo(200);
+                identity.set(jdbc.queryForObject("select l.identity::text from voice_leases l join room_memberships m on m.id=l.membership_id where m.user_id=?::uuid",String.class,d.user()));
+            }finally{resume.countDown();}
+            maintenance.get(5,TimeUnit.SECONDS);
+        }
+        assertThat(deletions.get()).isZero();assertThat(removals.get()).isZero();
     }
 }

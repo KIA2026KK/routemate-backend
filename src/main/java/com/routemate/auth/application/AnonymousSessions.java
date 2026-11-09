@@ -43,6 +43,15 @@ public class AnonymousSessions {
         return sessions.findUser(hash(authorization.substring(7)), clock.instant()).orElseThrow(Unauthorized::new);
     }
 
+    /** Serialize an authenticated mutation with session recovery/revocation. */
+    @Transactional
+    public UUID authenticateLocked(String authorization) {
+        UUID userId = authenticate(authorization);
+        sessions.lockUser(userId);
+        if (!authenticate(authorization).equals(userId)) throw new Unauthorized();
+        return userId;
+    }
+
     static String hash(String token) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));

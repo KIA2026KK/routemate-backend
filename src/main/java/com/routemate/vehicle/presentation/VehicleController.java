@@ -1,6 +1,5 @@
 package com.routemate.vehicle.presentation;
 
-import com.routemate.auth.application.AnonymousSessions;
 import com.routemate.vehicle.application.VehicleAccounts;
 import com.routemate.vehicle.domain.*;
 import jakarta.validation.Valid;
@@ -12,14 +11,12 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 class VehicleController {
-    private final AnonymousSessions sessions;
     private final VehicleAccounts vehicles;
-    VehicleController(AnonymousSessions sessions, VehicleAccounts vehicles) { this.sessions = sessions; this.vehicles = vehicles; }
+    VehicleController(VehicleAccounts vehicles) { this.vehicles = vehicles; }
     @PostMapping("/api/v1/vehicles/me")
     ResponseEntity<VehicleResponse> bind(@RequestHeader(value = "Authorization", required = false) String authorization,
         @Valid @RequestBody VehicleRequest request) {
-        UUID userId = sessions.authenticate(authorization);
-        var account = vehicles.bind(userId, new Vin(request.vin()), request.source(), request.vinAccessType());
+        var account = vehicles.bindAuthenticated(authorization, new Vin(request.vin()), request.source(), request.vinAccessType());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new VehicleResponse(account.id(),
             account.vin().masked(), account.source(), account.vinAccessType(), false));
     }

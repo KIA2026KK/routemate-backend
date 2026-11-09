@@ -96,6 +96,15 @@ LiveKit 서버 SDK, JUnit 5, Testcontainers, Docker Compose를 활용합니다.
 `develop` 검증을 통과하면 별도의 `develop → main` PR로 반영합니다.
 세부 규칙은 [DEVELOPMENT.md](DEVELOPMENT.md)를 참고합니다.
 
+## 배포 및 검증 계획
+
+Render의 Docker 서버·PostgreSQL/PostGIS·Key Value와 별도 LiveKit 서버를 연결합니다.
+Firebase는 테스트 APK 배포·오류 관찰 등에 선택적으로 활용하며 공간 검색의 주 DB는 PostgreSQL을 유지합니다.
+
+- [설계 점검과 남은 조건](docs/design-review.md)
+- [Render·Firebase 배포 및 전달 정보](docs/deployment-render-firebase.md)
+- [실행한 검증 기록](VERIFICATION.md)
+
 ## MVP 범위
 
 목적지 매칭, 통화방 관리, 다자간 음성 통화에 집중합니다.

@@ -13,7 +13,7 @@ class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> roomFailure(com.routemate.room.domain.RoomFailure failure) {
         var status=switch(failure.reason){
             case TRIP_REQUIRED -> HttpStatus.PRECONDITION_REQUIRED;
-            case ALREADY_IN_ROOM,ROOM_FULL -> HttpStatus.CONFLICT;
+            case ALREADY_IN_ROOM,ROOM_FULL,TRIP_CHANGED -> HttpStatus.CONFLICT;
             case ROOM_UNAVAILABLE -> HttpStatus.NOT_FOUND;
             case NOT_IN_ROOM -> HttpStatus.FORBIDDEN;
             case VOICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
