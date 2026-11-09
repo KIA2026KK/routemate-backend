@@ -62,3 +62,13 @@
 - 실제 Pleos VIN·목적지 수신과 물리 3개 단말의 음질·청취는 미검증.
 - 임시 PostGIS·Redis 및 별도 설치 패키지를 쓰는 독립 MVP 검증도 두 회차 연속 통과.
   테스트 종료 후 해당 서버·앱·컨테이너만 정리되고 기존 개발 인프라는 유지됨을 확인.
+## 설계 점검·운행 동시성·배포 준비 — 2026-11-09
+
+- Java 21의 `test bootJar` 성공. 60개 테스트, 실패·오류·건너뜀 0개.
+- 운행 revision·오래된 요청 거부, 인증 재검증, Mock/실차 방 분리, 1km 근삿값,
+  LiveKit 정리 직전 권한 확인과 IO 중 잠금 해제 회귀 검증 포함.
+- Render PORT 우선순위, PG SSL 기본값, Redis TLS URL 우선순위 설정 테스트 3개 포함.
+- 최종 소스의 `docker build -t routemate-backend:design-review .` 성공. Java 21 다단계 이미지, UID 10001 실행.
+- 실제 Render/Firebase 자원 생성·배포는 미실시. 클라우드 DB 확장 버전·원격 TLS·음성 포트는 배포 후 확인 필요.
+- [설계 점검](docs/design-review.md), [배포 안내](docs/deployment-render-firebase.md)에 남은 조건 기록.
+

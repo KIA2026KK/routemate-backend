@@ -21,7 +21,7 @@ public class RoomSessions {
     }
     public UUID prepare(String auth){
         sessions.authenticate(auth);rooms.lock();
-        UUID user=sessions.authenticate(auth);vehicles.current(user);rooms.expire(clock.instant());return user;
+        UUID user=sessions.authenticateLocked(auth);vehicles.current(user);rooms.expire(clock.instant());return user;
     }
     private Trip requireTrip(UUID user){return rooms.trip(user).orElseThrow(()->new RoomFailure("TRIP_REQUIRED"));}
     public Optional<Trip> currentTrip(String auth){return rooms.trip(prepare(auth));}
@@ -43,6 +43,7 @@ public class RoomSessions {
     }
     public Room join(String auth,UUID id){
         UUID user=prepare(auth);requireTrip(user);var existing=rooms.membership(user);
+        if(!rooms.sameVehicleSource(user,id))throw new RoomFailure("ROOM_UNAVAILABLE");
         if(existing.isPresent()) {
             if(existing.get().roomId().equals(id))return rooms.room(id).orElseThrow();
             throw new RoomFailure("ALREADY_IN_ROOM");

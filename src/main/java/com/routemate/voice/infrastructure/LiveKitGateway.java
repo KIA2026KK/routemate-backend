@@ -63,15 +63,14 @@ class LiveKitGateway implements VoiceGateway {
         return new Grant(url,jwt(identity.toString(),Map.of("room",name,"roomJoin",true,"canSubscribe",true,"canPublish",true,
             "canPublishSources",List.of("microphone"),"canPublishData",false),now),now.plusSeconds(60));
     }
-    public void reconcile(Map<String,Set<String>> allowed){
+    public void reconcile(PermissionGuard permissions){
         if(server.isBlank()||key.isBlank()||secret.isBlank()||url.isBlank())return;
         for(var room:call("ListRooms","",Map.of()).path("rooms")){
             String name=room.path("name").asText();if(!name.startsWith("rmv-"))continue;
-            var permitted=allowed.getOrDefault(name,Set.of());
-            if(permitted.isEmpty()){call("DeleteRoom",name,Map.of("room",name));continue;}
+            if(permissions.deleteIfEmpty(name,()->call("DeleteRoom",name,Map.of("room",name))))continue;
             for(var participant:call("ListParticipants",name,Map.of("room",name)).path("participants")){
                 String identity=participant.path("identity").asText();
-                if(!permitted.contains(identity))call("RemoveParticipant",name,Map.of("room",name,"identity",identity));
+                permissions.removeIfDenied(name,identity,()->call("RemoveParticipant",name,Map.of("room",name,"identity",identity)));
             }
         }
     }
