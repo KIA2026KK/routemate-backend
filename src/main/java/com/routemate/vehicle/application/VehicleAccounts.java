@@ -12,12 +12,18 @@ public class VehicleAccounts {
     private final VehicleRepository vehicles;
     private final Clock clock;
     private final boolean allowMock;
+    private final com.routemate.auth.application.AnonymousSessions sessions;
     public VehicleAccounts(VehicleRepository vehicles, Clock clock,
-        @Value("${routemate.vehicle.allow-mock:false}") boolean allowMock) {
-        this.vehicles = vehicles; this.clock = clock; this.allowMock = allowMock;
+        @Value("${routemate.vehicle.allow-mock:false}") boolean allowMock,
+        com.routemate.auth.application.AnonymousSessions sessions) {
+        this.vehicles = vehicles; this.clock = clock; this.allowMock = allowMock; this.sessions=sessions;
     }
     private void checkSource(VehicleAccount.Source source) {
         if (source == VehicleAccount.Source.MOCK && !allowMock) throw new VehicleRepository.MockDisabled();
+    }
+    @Transactional
+    public VehicleAccount bindAuthenticated(String authorization,Vin vin,VehicleAccount.Source source,VehicleAccount.VinAccess access) {
+        return bind(sessions.authenticateLocked(authorization),vin,source,access);
     }
     @Transactional
     public VehicleAccount bind(UUID userId, Vin vin, VehicleAccount.Source source, VehicleAccount.VinAccess access) {

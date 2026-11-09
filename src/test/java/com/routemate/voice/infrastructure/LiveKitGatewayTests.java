@@ -1,6 +1,7 @@
 package com.routemate.voice.infrastructure;
 import com.fasterxml.jackson.databind.*;
 import com.routemate.room.domain.RoomFailure;
+import com.routemate.voice.domain.VoiceGateway;
 import com.sun.net.httpserver.HttpServer;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -43,7 +44,16 @@ class LiveKitGatewayTests {
             byte[] bytes=body.getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();
         });server.start();
         try{
-            gateway(server).reconcile(Map.of("rmv-active",Set.of("allowed")));
+            var allowed=Map.of("rmv-active",Set.of("allowed"));
+            gateway(server).reconcile(new VoiceGateway.PermissionGuard(){
+                public boolean deleteIfEmpty(String room,Runnable deletion){
+                    if(!allowed.getOrDefault(room,Set.of()).isEmpty())return false;
+                    deletion.run();return true;
+                }
+                public void removeIfDenied(String room,String identity,Runnable removal){
+                    if(!allowed.getOrDefault(room,Set.of()).contains(identity))removal.run();
+                }
+            });
             assertThat(paths.stream().filter(p->p.contains("RemoveParticipant")).toList()).hasSize(1).allMatch(p->p.contains("revoked"));
             assertThat(paths.stream().filter(p->p.contains("DeleteRoom")).toList()).hasSize(1).allMatch(p->p.contains("rmv-ended"));
             assertThat(paths.stream().filter(p->!p.contains("ListRooms")).toList()).noneMatch(p->p.contains("another-app"));

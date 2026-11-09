@@ -1,0 +1,64 @@
+# Review plans/region and costs before creating this Blueprint. No resources are created by this file alone.
+services:
+  - type: web
+    name: routemate-backend
+    runtime: docker
+    branch: main
+    region: singapore
+    plan: 1c-2g
+    autoDeployTrigger: checksPass
+    healthCheckPath: /actuator/health
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: routemate-postgres
+          property: host
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        fromDatabase:
+          name: routemate-postgres
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: routemate-postgres
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: routemate-postgres
+          property: password
+      - key: DB_SSL_MODE
+        value: require
+      - key: SPRING_DATA_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: routemate-key-value
+          property: connectionString
+      - key: ALLOW_MOCK_VEHICLE
+        value: "false"
+      - key: LIVEKIT_SERVER_URL
+        sync: false
+      - key: LIVEKIT_PUBLIC_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+
+  - type: keyvalue
+    name: routemate-key-value
+    region: singapore
+    plan: 256mb
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: routemate-postgres
+    region: singapore
+    plan: 0.5c-1g
+    postgresMajorVersion: "17"
+    databaseName: routemate
+    user: routemate
+    diskSizeGB: 5
+    ipAllowList: []

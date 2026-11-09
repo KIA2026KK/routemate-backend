@@ -20,7 +20,9 @@ public class JdbcRoomRepository implements RoomRepository {
         jdbc.update("""
             update room_memberships m set left_at=? where left_at is null and
             (heartbeat_at<=? or exists(select 1 from rooms r where r.id=m.room_id and (r.closed_at is not null or r.expires_at<=?))
-            or not exists(select 1 from trip_sessions t where t.user_id=m.user_id and t.ended_at is null))
+            or not exists(select 1 from trip_sessions t where t.user_id=m.user_id and t.ended_at is null)
+            or exists(select 1 from rooms r join vehicles creator on creator.user_id=r.creator_id
+                join vehicles member on member.user_id=m.user_id where r.id=m.room_id and creator.source<>member.source))
             """,time,Timestamp.from(now.minusSeconds(90)),time);
         closeEmpty(now);
     }
@@ -33,7 +35,7 @@ public class JdbcRoomRepository implements RoomRepository {
         from trip_sessions where user_id=? and ended_at is null
         """,(rs,row)->new Trip(rs.getObject("id",UUID.class),user,rs.getObject("vehicle_id",UUID.class),
         new Destination(rs.getString("destination_name"),rs.getDouble("latitude"),rs.getDouble("longitude")),
-        rs.getTimestamp("started_at").toInstant(),rs.getTimestamp("updated_at").toInstant()),user).stream().findFirst();}
+        rs.getTimestamp("started_at").toInstant(),rs.getTimestamp("updated_at").toInstant(),rs.getLong("revision")),user).stream().findFirst();}
     @Override public void endTrip(UUID user,Instant now){
         leave(user,now);
         jdbc.update("update trip_sessions set ended_at=greatest(started_at,?) where user_id=? and ended_at is null",Timestamp.from(now),user);
@@ -48,6 +50,10 @@ public class JdbcRoomRepository implements RoomRepository {
     @Override public Optional<Room> room(UUID id){return jdbc.query(ROOM_SELECT+" where r.id=? and r.closed_at is null",(rs,row)->map(rs),id).stream().findFirst();}
     @Override public Optional<Membership> membership(UUID user){return jdbc.query("select id,room_id from room_memberships where user_id=? and left_at is null",
         (rs,row)->new Membership(rs.getObject("id",UUID.class),rs.getObject("room_id",UUID.class)),user).stream().findFirst();}
+    @Override public boolean sameVehicleSource(UUID user,UUID room){return Boolean.TRUE.equals(jdbc.queryForObject("""
+        select exists(select 1 from rooms r join vehicles creator on creator.user_id=r.creator_id
+        join vehicles member on member.user_id=? where r.id=? and creator.source=member.source)
+        """,Boolean.class,user,room));}
     @Override public Room create(UUID user,Trip trip,String name,boolean isPublic,int capacity,Instant now){
         UUID id=UUID.randomUUID();
         jdbc.update("""
@@ -67,10 +73,12 @@ public class JdbcRoomRepository implements RoomRepository {
     }
     @Override public List<Nearby> nearby(UUID user,int radiusKm){return jdbc.query("""
         select r.id,r.name,r.is_public,r.capacity,r.expires_at,count(m.id) participants,
-        round(ST_Distance(r.center,t.destination)) distance_meters
+        greatest(1000,ceil(ST_Distance(r.center,t.destination)/1000.0)*1000) distance_meters
         from rooms r join trip_sessions t on t.user_id=? and t.ended_at is null
+        join vehicles seeker on seeker.user_id=t.user_id
+        join vehicles creator on creator.user_id=r.creator_id and creator.source=seeker.source
         left join room_memberships m on m.room_id=r.id and m.left_at is null
         where r.closed_at is null and r.is_public and ST_DWithin(r.center,t.destination,?)
-        group by r.id,t.destination having count(m.id)<r.capacity order by distance_meters,r.id limit 50
+        group by r.id,t.destination having count(m.id)<r.capacity order by ST_Distance(r.center,t.destination),r.id limit 50
         """,(rs,row)->new Nearby(map(rs),rs.getLong("distance_meters")),user,radiusKm*1000);}
 }
