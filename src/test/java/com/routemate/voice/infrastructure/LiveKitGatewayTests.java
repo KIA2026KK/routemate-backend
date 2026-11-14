@@ -8,11 +8,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import static org.assertj.core.api.Assertions.*;
 
+@ExtendWith(OutputCaptureExtension.class)
 class LiveKitGatewayTests {
     private final ObjectMapper json=new ObjectMapper();
     private LiveKitGateway gateway(HttpServer server){return new LiveKitGateway(json,"http://127.0.0.1:"+server.getAddress().getPort(),"ws://127.0.0.1:7880","test-key","test-secret");}
@@ -66,5 +71,44 @@ class LiveKitGatewayTests {
         server.createContext("/",ex->{ex.sendResponseHeaders(503,-1);ex.close();});server.start();
         try{assertThatThrownBy(()->gateway(server).issue(UUID.randomUUID(),3,UUID.randomUUID(),Instant.now())).isInstanceOf(RoomFailure.class);}
         finally{server.stop(0);}
+    }
+    @Test void reportsMissingFieldNamesWithoutCredentialValues(CapturedOutput output){
+        var gateway=new LiveKitGateway(json,"","wss://voice.example","private-key-marker","private-secret-marker");
+        assertThatThrownBy(()->gateway.issue(UUID.randomUUID(),3,UUID.randomUUID(),Instant.now())).isInstanceOf(RoomFailure.class);
+        assertThat(output.getAll()).contains("method=CreateRoom","reason=MISSING_CONFIGURATION","diagnostic=LIVEKIT_SERVER_URL")
+            .doesNotContain("private-key-marker","private-secret-marker");
+    }
+    @Test void reportsRejectedHttpStatusWithoutHeadersTokensOrUpstreamBody(CapturedOutput output)throws Exception{
+        var authorization=new AtomicReference<String>();
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/",ex->{
+            authorization.set(ex.getRequestHeaders().getFirst("Authorization"));
+            byte[] body="private-upstream-response-marker".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(401,body.length);ex.getResponseBody().write(body);ex.close();
+        });server.start();
+        try{
+            var gateway=new LiveKitGateway(json,"http://127.0.0.1:"+server.getAddress().getPort(),"wss://voice.example","private-key-marker","private-secret-marker");
+            assertThatThrownBy(()->gateway.issue(UUID.randomUUID(),3,UUID.randomUUID(),Instant.now())).isInstanceOf(RoomFailure.class);
+            assertThat(authorization.get()).startsWith("Bearer ");
+            assertThat(output.getAll()).contains("method=CreateRoom","reason=HTTP_ERROR","httpStatus=401")
+                .doesNotContain("private-key-marker","private-secret-marker","private-upstream-response-marker",authorization.get(),authorization.get().substring(7));
+        }finally{server.stop(0);}
+    }
+    @Test void invalidConfigurationNeverEchoesCredentialBearingUrl(CapturedOutput output){
+        var gateway=new LiveKitGateway(json,"https://private-user:private-url-marker@voice.example","wss://voice.example","private-key-marker","private-secret-marker");
+        assertThatThrownBy(()->gateway.issue(UUID.randomUUID(),3,UUID.randomUUID(),Instant.now())).isInstanceOf(RoomFailure.class);
+        assertThat(output.getAll()).contains("reason=INVALID_URL","diagnostic=LIVEKIT_SERVER_URL,LIVEKIT_PUBLIC_URL")
+            .doesNotContain("private-user","private-url-marker","private-key-marker","private-secret-marker");
+    }
+    @Test void malformedResponseLogsOnlyItsFailureCategory(CapturedOutput output)throws Exception{
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/",ex->{
+            byte[] body="private-invalid-json-marker".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200,body.length);ex.getResponseBody().write(body);ex.close();
+        });server.start();
+        try{
+            assertThatThrownBy(()->gateway(server).issue(UUID.randomUUID(),3,UUID.randomUUID(),Instant.now())).isInstanceOf(RoomFailure.class);
+            assertThat(output.getAll()).contains("reason=INVALID_RESPONSE").doesNotContain("private-invalid-json-marker");
+        }finally{server.stop(0);}
     }
 }
