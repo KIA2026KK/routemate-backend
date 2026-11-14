@@ -71,3 +71,15 @@
 - 최종 소스의 `docker build -t routemate-backend:design-review .` 성공. Java 21 다단계 이미지, UID 10001 실행.
 - 실제 Render/Firebase 자원 생성·배포는 미실시. 클라우드 DB 확장 버전·원격 TLS·음성 포트는 배포 후 확인 필요.
 - [설계 점검](docs/design-review.md), [배포 안내](docs/deployment-render-firebase.md)에 남은 조건 기록.
+
+## LiveKit 실패 진단 — 2026-11-14
+
+- 실제 Render health 200/UP, 합성 차량·운행·방 생성 성공, 음성 토큰 API 503 재현. 검사 운행 종료 확인.
+- 설정 누락 이름, 잘못된 URL, 상위 HTTP 상태, 시간 초과·IO·JSON 응답 오류를 서버 로그에서 구분하도록 보완.
+  앱에는 기존 VOICE_UNAVAILABLE 응답 유지. 원격 오류 원인이 확인된 것은 아님.
+- LiveKitGatewayTests 7개 통과. API Key·Secret·Authorization/JWT·응답 본문·URL 내부 자격증명을
+  로그에 노출하지 않는 회귀 테스트 4개 추가.
+- bootJar 생성 성공. 로컬 전체 테스트 64개 중 Docker가 필요한 54개는 엔진 연결 오류로 실패.
+  전체 회귀 검증은 PR의 독립 CI 환경에서도 수행하며, 최종 결과는 PR 체크에서 확인한다.
+- 실제 Render→LiveKit 인증·미디어 연결은 새 진단 로그로 원인 확인 후 재검증 필요.
+- 로그 해석: [LiveKit 장애 확인](docs/livekit-troubleshooting.md).
