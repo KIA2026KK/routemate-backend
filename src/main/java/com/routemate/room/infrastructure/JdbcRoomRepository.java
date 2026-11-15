@@ -23,7 +23,7 @@ public class JdbcRoomRepository implements RoomRepository {
             or not exists(select 1 from trip_sessions t where t.user_id=m.user_id and t.ended_at is null)
             or exists(select 1 from rooms r join vehicles creator on creator.user_id=r.creator_id
                 join vehicles member on member.user_id=m.user_id where r.id=m.room_id and creator.source<>member.source))
-            """,time,Timestamp.from(now.minusSeconds(90)),time);
+            """,time,Timestamp.from(now.minus(RoomPolicy.PARTICIPANT_LEASE)),time);
         closeEmpty(now);
     }
     private void closeEmpty(Instant now){jdbc.update("""
@@ -59,7 +59,7 @@ public class JdbcRoomRepository implements RoomRepository {
         jdbc.update("""
             insert into rooms(id,creator_id,name,is_public,capacity,center,created_at,expires_at)
             values(?,?,?,?,?,ST_SetSRID(ST_MakePoint(?,?),4326)::geography,?,?)
-            """,id,user,name.trim(),isPublic,capacity,trip.destination().longitude(),trip.destination().latitude(),Timestamp.from(now),Timestamp.from(now.plus(Duration.ofHours(2))));
+            """,id,user,name.trim(),isPublic,capacity,trip.destination().longitude(),trip.destination().latitude(),Timestamp.from(now),Timestamp.from(now.plus(RoomPolicy.ROOM_IDLE_TIMEOUT)));
         join(user,id,now);return room(id).orElseThrow();
     }
     @Override public void join(UUID user,UUID room,Instant now){jdbc.update("insert into room_memberships(id,room_id,user_id,joined_at,heartbeat_at) values(?,?,?,?,?)",
@@ -70,6 +70,12 @@ public class JdbcRoomRepository implements RoomRepository {
     @Override public void heartbeat(UUID user,Instant now){
         jdbc.update("update room_memberships set heartbeat_at=? where user_id=? and left_at is null",Timestamp.from(now),user);
         jdbc.update("update trip_sessions set updated_at=greatest(updated_at,?) where user_id=? and ended_at is null",Timestamp.from(now),user);
+        // Renew at most once per hour, rather than rewriting the room on every 20-second heartbeat.
+        // The application expires memberships before this operation; expired rooms cannot be revived.
+        jdbc.update("""
+            update rooms set expires_at=? where closed_at is null and expires_at<? and id in
+            (select room_id from room_memberships where user_id=? and left_at is null)
+            """,Timestamp.from(now.plus(RoomPolicy.ROOM_IDLE_TIMEOUT)),Timestamp.from(now.plus(RoomPolicy.ROOM_RENEWAL_WINDOW)),user);
     }
     @Override public List<Nearby> nearby(UUID user,int radiusKm){return jdbc.query("""
         select r.id,r.name,r.is_public,r.capacity,r.expires_at,count(m.id) participants,
