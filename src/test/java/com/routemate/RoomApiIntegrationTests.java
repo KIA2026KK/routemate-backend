@@ -109,16 +109,31 @@ class RoomApiIntegrationTests {
         }
         assertThat(getAs(a,"/api/v1/rooms/me").path("participants").asInt()).isEqualTo(2);
     }
-    @Test void searchUsesFinalDestinationAndFiveOrTenKmAndHidesPrivateAndFullRooms()throws Exception{
-        var origin=driver(true,33.0,126.0);var near=driver(true,33.03,126.0);var far=driver(true,33.07,126.0);
+    @Test void searchUsesFinalDestinationAndThreeOrFiveKmAndHidesPrivateAndFullRooms()throws Exception{
+        var origin=driver(true,33.0,126.0);var near=driver(true,33.01,126.0);var far=driver(true,33.04,126.0);
         var nearRoom=create(near,"가까운 방",true,2);var farRoom=create(far,"먼 방",true,2);
         var privateRoom=create(driver(true,33.01,126.0),"비공개",false,2);
-        String five=getAs(origin,"/api/v1/rooms/nearby?radiusKm=5").toString();
-        assertThat(five).contains(id(nearRoom)).doesNotContain(id(farRoom),id(privateRoom),"latitude","longitude");
-        assertThat(getAs(origin,"/api/v1/rooms/nearby?radiusKm=10").toString()).contains(id(farRoom));
+        String three=getAs(origin,"/api/v1/rooms/nearby?radiusKm=3").toString();
+        assertThat(three).contains(id(nearRoom)).doesNotContain(id(farRoom),id(privateRoom),"latitude","longitude");
+        assertThat(getAs(origin,"/api/v1/rooms/nearby").toString()).contains(id(nearRoom)).doesNotContain(id(farRoom));
+        assertThat(getAs(origin,"/api/v1/rooms/nearby?radiusKm=5").toString()).contains(id(farRoom));
         request(origin,"/api/v1/rooms/"+id(nearRoom)+"/join",null).andExpect(status().isOk());
         assertThat(getAs(origin,"/api/v1/rooms/nearby?radiusKm=5").toString()).doesNotContain(id(nearRoom));
         mvc.perform(get("/api/v1/rooms/nearby?radiusKm=7").header("Authorization","Bearer "+origin.token())).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/rooms/nearby?radiusKm=10").header("Authorization","Bearer "+origin.token())).andExpect(status().isBadRequest());
+    }
+    @Test void healthyHeartbeatRenewsRoomWithoutRewritingEveryHeartbeatOrRevivingExpiredRoom()throws Exception{
+        var a=driver(true);var r=create(a,"장거리 동행",true,3);var roomId=id(r);
+        jdbc.update("update rooms set expires_at=now()+interval '30 minutes' where id=?::uuid",roomId);
+        var before=jdbc.queryForObject("select expires_at from rooms where id=?::uuid",java.sql.Timestamp.class,roomId).toInstant();
+        request(a,"/api/v1/rooms/"+roomId+"/heartbeat",null).andExpect(status().isOk());
+        var renewed=jdbc.queryForObject("select expires_at from rooms where id=?::uuid",java.sql.Timestamp.class,roomId).toInstant();
+        assertThat(renewed).isAfter(before.plusSeconds(5000));
+        request(a,"/api/v1/rooms/"+roomId+"/heartbeat",null).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select expires_at from rooms where id=?::uuid",java.sql.Timestamp.class,roomId).toInstant()).isEqualTo(renewed);
+        jdbc.update("update rooms set expires_at=now()-interval '1 second' where id=?::uuid",roomId);
+        request(a,"/api/v1/rooms/"+roomId+"/heartbeat",null).andExpect(status().isForbidden());
+        assertThat(getAs(a,"/api/v1/rooms/me").isNull()).isTrue();
     }
     @Test void publicDistancesAreApproximateKilometerBuckets()throws Exception{
         var seeker=driver(true,30.123,124.543);
