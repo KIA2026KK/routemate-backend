@@ -10,6 +10,13 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class JdbcRoomRepository implements RoomRepository {
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+    private static final String CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    private static String inviteCode(){
+        var value=new StringBuilder(8);
+        for(int i=0;i<8;i++)value.append(CODE_ALPHABET.charAt(RANDOM.nextInt(CODE_ALPHABET.length())));
+        return value.toString();
+    }
     private final JdbcTemplate jdbc;
     public JdbcRoomRepository(JdbcTemplate jdbc){this.jdbc=jdbc;}
     // A transaction-scoped lock shared by instances keeps small-MVP lifecycle mutations ordered.
@@ -41,12 +48,14 @@ public class JdbcRoomRepository implements RoomRepository {
         jdbc.update("update trip_sessions set ended_at=greatest(started_at,?) where user_id=? and ended_at is null",Timestamp.from(now),user);
     }
     private static final String ROOM_SELECT="""
-        select r.id,r.name,r.is_public,r.capacity,r.expires_at,
+        select r.id,r.name,r.is_public,r.capacity,r.expires_at,r.invite_code,
         (select count(*) from room_memberships m where m.room_id=r.id and m.left_at is null) participants
         from rooms r
         """;
     private Room map(ResultSet rs)throws SQLException{return new Room(rs.getObject("id",UUID.class),rs.getString("name"),
-        rs.getBoolean("is_public"),rs.getInt("capacity"),rs.getInt("participants"),rs.getTimestamp("expires_at").toInstant());}
+        rs.getBoolean("is_public"),rs.getInt("capacity"),rs.getInt("participants"),rs.getTimestamp("expires_at").toInstant(),rs.getString("invite_code"));}
+    @Override public Optional<UUID> roomByCode(RoomInviteCode code){return jdbc.query(
+        "select id from rooms where invite_code=? and closed_at is null",(rs,row)->rs.getObject("id",UUID.class),code.value()).stream().findFirst();}
     @Override public Optional<Room> room(UUID id){return jdbc.query(ROOM_SELECT+" where r.id=? and r.closed_at is null",(rs,row)->map(rs),id).stream().findFirst();}
     @Override public Optional<Membership> membership(UUID user){return jdbc.query("select id,room_id from room_memberships where user_id=? and left_at is null",
         (rs,row)->new Membership(rs.getObject("id",UUID.class),rs.getObject("room_id",UUID.class)),user).stream().findFirst();}
@@ -56,10 +65,12 @@ public class JdbcRoomRepository implements RoomRepository {
         """,Boolean.class,user,room));}
     @Override public Room create(UUID user,Trip trip,String name,boolean isPublic,int capacity,Instant now){
         UUID id=UUID.randomUUID();
-        jdbc.update("""
-            insert into rooms(id,creator_id,name,is_public,capacity,center,created_at,expires_at)
-            values(?,?,?,?,?,ST_SetSRID(ST_MakePoint(?,?),4326)::geography,?,?)
-            """,id,user,name.trim(),isPublic,capacity,trip.destination().longitude(),trip.destination().latitude(),Timestamp.from(now),Timestamp.from(now.plus(RoomPolicy.ROOM_IDLE_TIMEOUT)));
+        int inserted=0;
+        for(int attempt=0;attempt<5&&inserted==0;attempt++)inserted=jdbc.update("""
+            insert into rooms(id,creator_id,name,is_public,capacity,center,created_at,expires_at,invite_code)
+            values(?,?,?,?,?,ST_SetSRID(ST_MakePoint(?,?),4326)::geography,?,?,?) on conflict(invite_code) do nothing
+            """,id,user,name.trim(),isPublic,capacity,trip.destination().longitude(),trip.destination().latitude(),Timestamp.from(now),Timestamp.from(now.plus(RoomPolicy.ROOM_IDLE_TIMEOUT)),inviteCode());
+        if(inserted!=1)throw new IllegalStateException("Unable to allocate invitation");
         join(user,id,now);return room(id).orElseThrow();
     }
     @Override public void join(UUID user,UUID room,Instant now){jdbc.update("insert into room_memberships(id,room_id,user_id,joined_at,heartbeat_at) values(?,?,?,?,?)",
@@ -78,7 +89,7 @@ public class JdbcRoomRepository implements RoomRepository {
             """,Timestamp.from(now.plus(RoomPolicy.ROOM_IDLE_TIMEOUT)),Timestamp.from(now.plus(RoomPolicy.ROOM_RENEWAL_WINDOW)),user);
     }
     @Override public List<Nearby> nearby(UUID user,int radiusKm){return jdbc.query("""
-        select r.id,r.name,r.is_public,r.capacity,r.expires_at,count(m.id) participants,
+        select r.id,r.name,r.is_public,r.capacity,r.expires_at,r.invite_code,count(m.id) participants,
         greatest(1000,ceil(ST_Distance(r.center,t.destination)/1000.0)*1000) distance_meters
         from rooms r join trip_sessions t on t.user_id=? and t.ended_at is null
         join vehicles seeker on seeker.user_id=t.user_id

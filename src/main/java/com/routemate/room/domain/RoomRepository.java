@@ -10,6 +10,7 @@ public interface RoomRepository {
     Optional<Trip> trip(UUID user);
     void endTrip(UUID user, Instant now);
     Optional<Room> room(UUID id);
+    Optional<UUID> roomByCode(RoomInviteCode code);
     Optional<Membership> membership(UUID user);
     boolean sameVehicleSource(UUID user, UUID room);
     Room create(UUID user, Trip trip, String name, boolean isPublic, int capacity, Instant now);
