@@ -42,14 +42,27 @@ public class RoomSessions {
         return rooms.create(user,trip,name,isPublic,capacity,clock.instant());
     }
     public Room join(String auth,UUID id){
-        UUID user=prepare(auth);requireTrip(user);var existing=rooms.membership(user);
+        UUID user=prepare(auth);requireTrip(user);return joinPrepared(user,id,false);
+    }
+    public Room switchRoom(String auth,UUID id){
+        UUID user=prepare(auth);requireTrip(user);return joinPrepared(user,id,true);
+    }
+    public Room joinByCode(String auth,String value,boolean replaceCurrent){
+        var code=new RoomInviteCode(value);
+        UUID user=prepare(auth);requireTrip(user);
+        return joinPrepared(user,rooms.roomByCode(code).orElseThrow(()->new RoomFailure("ROOM_UNAVAILABLE")),replaceCurrent);
+    }
+    private Room joinPrepared(UUID user,UUID id,boolean replaceCurrent){
+        var existing=rooms.membership(user);
         if(!rooms.sameVehicleSource(user,id))throw new RoomFailure("ROOM_UNAVAILABLE");
         if(existing.isPresent()) {
             if(existing.get().roomId().equals(id))return rooms.room(id).orElseThrow();
-            throw new RoomFailure("ALREADY_IN_ROOM");
+            if(!replaceCurrent)throw new RoomFailure("ALREADY_IN_ROOM");
         }
         var room=rooms.room(id).orElseThrow(()->new RoomFailure("ROOM_UNAVAILABLE"));
         if(room.participants()>=room.capacity())throw new RoomFailure("ROOM_FULL");
+        // Validate first. Leave and join commit together; a rejected destination never loses the old room.
+        if(existing.isPresent())rooms.leave(user,clock.instant());
         rooms.join(user,id,clock.instant());return rooms.room(id).orElseThrow();
     }
     public void leave(String auth,UUID id){

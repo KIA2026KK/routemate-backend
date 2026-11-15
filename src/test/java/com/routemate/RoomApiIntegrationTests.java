@@ -73,6 +73,47 @@ class RoomApiIntegrationTests {
         request(d,"/api/v1/rooms",Map.of("name","방","isPublic",true,"capacity",3)).andExpect(status().isPreconditionRequired());
         mvc.perform(get("/api/v1/rooms/nearby").header("Authorization","Bearer "+d.token())).andExpect(status().isPreconditionRequired());
     }
+    @Test void invitationJoinsPrivateRoomAndPreservesOneRoomAndIdempotentMembership()throws Exception{
+        var a=driver(true);var b=driver(true);var c=driver(true);
+        var r=create(a,"초대 동행",false,2);var code=r.path("inviteCode").asText();
+        assertThat(code).matches("[A-HJ-NP-Z2-9]{8}");
+        var invitation=Map.of("code"," "+code.toLowerCase(java.util.Locale.ROOT)+" ");
+        request(b,"/api/v1/rooms/join",invitation).andExpect(status().isOk()).andExpect(jsonPath("participants").value(2));
+        request(b,"/api/v1/rooms/join",invitation).andExpect(status().isOk()).andExpect(jsonPath("participants").value(2));
+        request(c,"/api/v1/rooms/join",invitation).andExpect(status().isConflict()).andExpect(jsonPath("code").value("ROOM_FULL"));
+        var other=create(c,"다른 동행",false,3);
+        request(b,"/api/v1/rooms/join",Map.of("code",other.path("inviteCode").asText())).andExpect(status().isConflict()).andExpect(jsonPath("code").value("ALREADY_IN_ROOM"));
+    }
+    @Test void invitationValidatesAuthorizationSourceAndClosedRooms()throws Exception{
+        var real=driver(true);var mock=driver(true,37.55,126.97,"MOCK");var r=create(real,"출처 확인",false,3);
+        var code=r.path("inviteCode").asText();
+        request(mock,"/api/v1/rooms/join",Map.of("code",code)).andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/rooms/join").contentType("application/json").content("{\"code\":\""+code+"\"}")).andExpect(status().isUnauthorized());
+        request(real,"/api/v1/rooms/join",Map.of("code","short")).andExpect(status().isBadRequest());
+        request(real,"/api/v1/rooms/join",Map.of("code","ZZZZZZZZZZZZZZZZ")).andExpect(status().isNotFound());
+        request(real,"/api/v1/rooms/"+id(r)+"/leave",null).andExpect(status().isOk());
+        request(real,"/api/v1/rooms/join",Map.of("code",code)).andExpect(status().isNotFound());
+    }
+    @Test void legacyUuidDerivedInvitationRemainsUsable()throws Exception{
+        var a=driver(true);var b=driver(true);var r=create(a,"이전 방",false,3);
+        var legacy=id(r).replace("-","").toUpperCase(java.util.Locale.ROOT);
+        jdbc.update("update rooms set invite_code=? where id=?::uuid",legacy,id(r));
+        request(b,"/api/v1/rooms/join",Map.of("code",legacy)).andExpect(status().isOk()).andExpect(jsonPath("id").value(id(r)));
+    }
+    @Test void roomSwitchIsAtomicAndRejectedTargetPreservesExistingMembership()throws Exception{
+        var a=driver(true);var b=driver(true);var c=driver(true);
+        var old=create(a,"이전 방",true,3);var target=create(b,"이동할 방",true,2);
+        request(c,"/api/v1/rooms/"+id(target)+"/join",null).andExpect(status().isOk());
+        request(a,"/api/v1/rooms/"+id(target)+"/switch",null).andExpect(status().isConflict()).andExpect(jsonPath("code").value("ROOM_FULL"));
+        assertThat(getAs(a,"/api/v1/rooms/me").path("id")).isEqualTo(old.path("id"));
+        request(a,"/api/v1/rooms/join",Map.of("code","ZZZZZZZZZZZZZZZZ","replaceCurrent",true)).andExpect(status().isNotFound());
+        assertThat(getAs(a,"/api/v1/rooms/me").path("id")).isEqualTo(old.path("id"));
+        request(c,"/api/v1/rooms/"+id(target)+"/leave",null).andExpect(status().isOk());
+        request(a,"/api/v1/rooms/join",Map.of("code",target.path("inviteCode").asText(),"replaceCurrent",true)).andExpect(status().isOk()).andExpect(jsonPath("id").value(id(target)));
+        assertThat(getAs(a,"/api/v1/rooms/me").path("id")).isEqualTo(target.path("id"));
+        assertThat(jdbc.queryForObject("select count(*) from room_memberships where user_id=?::uuid and left_at is null",Integer.class,a.user())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select closed_at is not null from rooms where id=?::uuid",Boolean.class,id(old))).isTrue();
+    }
     @Test void creationRetryAndJoinRetryPreserveMembership()throws Exception{
         var a=driver(true);var b=driver(true);var r=create(a,"동행",true,3);
         assertThat(create(a,"동행",true,3).path("id")).isEqualTo(r.path("id"));

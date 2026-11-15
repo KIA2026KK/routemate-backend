@@ -18,7 +18,10 @@ public class RoomController {
     @GetMapping("/api/v1/rooms/nearby") Object nearby(@RequestHeader(value="Authorization",required=false)String auth,@RequestParam(defaultValue="3")int radiusKm){return ok(rooms.nearby(auth,radiusKm));}
     @PostMapping("/api/v1/rooms") Object create(@RequestHeader(value="Authorization",required=false)String auth,@Valid @RequestBody Create request){return ok(rooms.create(auth,request.name(),request.isPublic(),request.capacity()));}
     @PostMapping("/api/v1/rooms/{id}/join") Object join(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID id){return ok(rooms.join(auth,id));}
+    @PostMapping("/api/v1/rooms/join") Object joinCode(@RequestHeader(value="Authorization",required=false)String auth,@Valid @RequestBody Invitation request){return ok(rooms.joinByCode(auth,request.code(),Boolean.TRUE.equals(request.replaceCurrent())));}
+    @PostMapping("/api/v1/rooms/{id}/switch") Object switchRoom(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID id){return ok(rooms.switchRoom(auth,id));}
     @PostMapping("/api/v1/rooms/{id}/leave") Object leave(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID id){rooms.leave(auth,id);return ok(java.util.Map.of("left",true));}
     @PostMapping("/api/v1/rooms/{id}/heartbeat") Object heartbeat(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID id){return ok(rooms.heartbeat(auth,id));}
     record Create(@NotBlank @Size(max=60)String name,@NotNull Boolean isPublic,@NotNull @Min(2) @Max(8)Integer capacity){}
+    record Invitation(@NotBlank @Size(max=64)String code,Boolean replaceCurrent){}
 }
