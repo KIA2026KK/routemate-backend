@@ -3,9 +3,34 @@
 RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그룹 음성 통화 서비스입니다.
 백엔드는 목적지 기반 매칭, 통화방 관리, 음성 통화 접근 권한을 담당합니다.
 
-이 문서는 MVP에서 구현할 기능과 설계 방향을 설명합니다.
+팀 **노래말고 사람들과 함께**의 RouteMate 백엔드입니다. 아래 기능은 현재 구현된 MVP이며,
+실제 Pleos 차량 연동·물리 단말 음질·OEM 소유권 검증은 별도 검증 항목입니다.
 
-## 주요 기능 계획
+대표 제출 저장소와 APK·실행 가이드: [RouteMate Android](https://github.com/KIA2026KK/routemate-pleos-app).
+테스트 API: https://routemate-test-api.onrender.com · `GET /actuator/health`.
+
+## 실행과 환경 설정
+
+Java 21, Docker의 PostgreSQL/PostGIS·Redis를 준비하고 `.env.example`을 `.env`로 복사해 비밀번호를 로컬에서 입력합니다.
+LiveKit API Key·Secret은 서버 환경 변수로만 설정합니다. Render에서는 플랫폼의 환경 변수 화면에 입력합니다.
+
+```powershell
+Copy-Item .env.example .env
+# .env의 DB/Redis 비밀번호 및 LiveKit 설정을 로컬에서 입력
+docker compose up -d
+.\gradlew.bat bootRun --console=plain
+```
+
+전체 자동 테스트: `.\gradlew.bat test --console=plain` (Docker/Testcontainers 필요).
+배포 빌드: `.\gradlew.bat bootJar --console=plain` 또는 저장소 Dockerfile.
+Flyway V1~V7이 스키마·PostGIS·방 초대 코드를 관리합니다.
+필수 설정은 `.env.example`, [배포 가이드](docs/deployment-render-firebase.md)를 참고합니다.
+Firebase는 APK 배포 수단이며 현재 서비스 DB는 PostgreSQL/PostGIS입니다.
+
+실제 Pleos·차량 오디오 검증 결과는 Android의 `docs/TEST_RESULTS.md`에 구분합니다.
+두 저장소는 별도 구성을 유지하며 공개 전환·최종 게시 작업은 아직 수행하지 않았습니다.
+
+## 구현된 주요 기능
 
 ### 목적지 및 운행 세션 관리
 
@@ -59,12 +84,15 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 | GET | `/api/v1/rooms/nearby` | 목적지 반경 내 통화방 검색 |
 | POST | `/api/v1/rooms` | 통화방 생성 |
 | POST | `/api/v1/rooms/{id}/join` | 통화방 입장 |
+| POST | `/api/v1/rooms/join` | 초대 코드 참여·선택적 원자적 방 이동 |
+| POST | `/api/v1/rooms/{id}/switch` | 현재 방을 보존하는 실패 처리와 원자적 이동 |
 | POST | `/api/v1/rooms/{id}/leave` | 통화방 퇴장 |
 | GET | `/api/v1/rooms/me` | 자신의 참여 중인 방 조회 |
 | POST | `/api/v1/rooms/{id}/heartbeat` | 참가 상태 유지 및 최신 인원 확인 |
 | POST | `/api/v1/voice/token` | 참여 권한 확인 후 LiveKit 토큰 발급 |
 
-요청·응답과 오류 규격은 기능 구현 시 Android 앱과 함께 정의합니다.
+요청·응답과 오류 규격은 Android 앱과 공통 API 계약으로 관리합니다.
+초대 코드·원자적 방 이동은 [방 초대 계약](docs/room-invites.md)을 따릅니다.
 목적지 등록과 익명 세션의 요청·응답은 [API 계약](docs/trip-api.md)을 따릅니다.
 방·운행 종료·음성 토큰과 만료 규칙은 [MVP 통합 계약](docs/mvp-room-calls.md)을 따릅니다.
 서버가 신뢰할 수 있는 사용자 식별 방식을 적용하고, 로그인·회원가입 고도화는 MVP 범위에서 제외합니다.
@@ -87,7 +115,7 @@ RouteMate는 목적지가 가까운 운전자들을 연결하는 차량용 그�
 ## 기술 구성
 
 Java 21, Spring Boot, Gradle, PostgreSQL/PostGIS, Redis, Flyway,
-LiveKit 서버 SDK, JUnit 5, Testcontainers, Docker Compose를 활용합니다.
+LiveKit HTTP 관리 API·서명 토큰, JUnit 5, Testcontainers, Docker Compose를 활용합니다.
 
 ## 개발 흐름
 
