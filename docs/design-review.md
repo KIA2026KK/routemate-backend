@@ -4,7 +4,7 @@
 
 | 기준 | 점검 결과 | 검증 범위 |
 | --- | --- | --- |
-| 최종 목적지 기준 5/10km 매칭 | PostGIS geography/ST_DWithin 사용, 차량 현재 위치 미사용 | DB 통합 테스트 |
+| 최종 목적지 기준 3/5km 매칭 | PostGIS geography/ST_DWithin 사용, 차량 현재 위치 미사용 | DB 통합 테스트 |
 | VIN 차량 계정 | VIN+출처 식별, 설치 Bearer 인증, 복구키/세션 폐기 | API·앱 자동 테스트. 실제 차량 수신 미검증 |
 | DDD | 기능별 domain/application/infrastructure/presentation, 도메인에 SDK·UI 의존성 없음 | 소스 검토 |
 | Mock 유지·실제 SDK 분리 | 목적지·VIN 제공자 교체, 실차 오류 시 Mock 자동 대체 없음 | 단위·일반 Android 빌드/실패 경로 |

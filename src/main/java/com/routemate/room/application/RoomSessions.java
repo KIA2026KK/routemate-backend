@@ -28,7 +28,7 @@ public class RoomSessions {
     public void endTrip(String auth){rooms.endTrip(prepare(auth),clock.instant());}
     public Optional<Room> current(String auth){return rooms.membership(prepare(auth)).flatMap(m->rooms.room(m.roomId()));}
     public List<RoomRepository.Nearby> nearby(String auth,int radiusKm){
-        if(radiusKm!=5 && radiusKm!=10)throw new IllegalArgumentException("Radius must be 5 or 10");
+        RoomPolicy.validateRadius(radiusKm);
         UUID user=prepare(auth);requireTrip(user);return rooms.nearby(user,radiusKm);
     }
     public Room create(String auth,String name,boolean isPublic,int capacity){
